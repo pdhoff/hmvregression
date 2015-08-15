@@ -1,0 +1,119 @@
+---
+title: "Bayesian Hierarchical Multivariate Regression"
+author: "Peter Hoff"
+date: "`r Sys.Date()`"
+output: html_document
+vignette: >
+  %\VignetteIndexEntry{Bayesian Hierarchical Multivariate Regression}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This package provides functions to approximate the posterior 
+distribution of the parameters in the hierarchical multivariate
+regression  model given by
+\[
+\begin{align*} 
+Y_i & = B_i X_i + V_E^{1/2} E_i,   \\
+\text{vec}(B_i) & = \text{vec}(B_0)  + V_0^{1/2} e_i 
+\end{align*}
+\]
+where 
+
+- $Y_i\in \mathbb R^{m\times n}$; 
+- $X_i\in \mathbb R^{p\times n}$; 
+- $B_i\in \mathbb R^{m\times p}$. 
+
+for $i=1,\ldots,r$. 
+The error terms $E_i$ and $e_i$ 
+consist of independent standard normal entries, and 
+are also independent 
+across values of $i$. 
+
+
+
+### load package
+```{r}
+library(hmvregression)
+```
+
+
+### simulate some parameters and data
+```{r} 
+m<-5 ; p<-3 ; n<-25 ; r<-100
+
+B0.0<-rsan(c(m,p))
+V0.0<-crossprod( rsan(c(m*p,m*p))  )
+VE.0<-crossprod( rsan(c(m,m)) )
+
+XA<-rsan(c(r,p,n))
+
+YA<-array(dim=c(r,m,n))
+BA.0<-array(dim=c(r,m,p))
+for(i in 1:r)
+{
+  BA.0[i,,]<-B0.0 + matrix( t(chol(V0.0))%*%rnorm(m*p), m,p )
+  YA[i,,]<-BA.0[i,,]%*%XA[i,,] + t(chol(VE.0))%*%rsan(c(m,n))
+}
+```
+
+
+### starting values 
+```{r}
+BA<-array(dim=c(r,m,p))
+EA<-array(dim=c(r,m,n))
+for(i in 1:r)
+{
+  BA[i,,]<-tcrossprod(YA[i,,],XA[i,,]) %*% solve(tcrossprod(XA[i,,]))
+  EA[i,,]<-YA[i,,] - BA[i,,]%*%XA[i,,]
+}
+
+B0<-apply(BA,c(2,3),mean)
+V0<-var( t(apply(BA,1,c)) )
+VE<-var(   apply(EA,2,c) )
+```
+
+### check preliminary estimates
+```{r}
+par(mfrow=c(2,2),mar=c(3,3,1,1))
+plot(V0,V0.0) ; abline(0,1)
+plot(VE,VE.0) ; abline(0,1)
+plot(BA,BA.0) ; abline(0,1)
+plot(B0,B0.0) ; abline(0,1)
+```
+
+### MCMC
+```{r,fig.keep='last'}
+
+B0PSUM<-matrix(0,m,p) 
+B0PSAM<-NULL
+
+for(s in 1:100)
+{
+
+  BA<-rBA_fc(YA,XA,B0,V0,VE)
+
+  VE<-rVE_fc(YA,XA,BA)
+
+  B0<-rB0_fc(BA,V0)
+
+  V0<-rV0_fc(BA,B0)
+
+  # output 
+  B0PSAM<-rbind(B0PSAM,c(B0)) ; B0PSUM<-B0PSUM+B0
+
+  par(mfrow=c(3,2),mar=c(3,3,1,1))
+  plot(V0,V0.0) ; abline(0,1)
+  plot(VE,VE.0) ; abline(0,1)
+  plot(BA,BA.0) ; abline(0,1)
+  plot(B0,B0.0) ; abline(0,1)
+  matplot(B0PSAM,type="l",lty=2,col=1:prod(dim(B0))) 
+  abline(h=c(B0.0),col=1:prod(dim(B0))) 
+  plot(B0.0,B0PSUM/s) ; abline(0,1) 
+
+}
+```
+
+
+
+
